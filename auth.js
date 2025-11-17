@@ -1,11 +1,13 @@
 /**
  * Authentication Manager - Handles admin login and role-based access control
+ * Uses Firebase Authentication for secure user management
  */
 class AuthManager {
   constructor() {
     this.currentUser = null;
-    this.sessionKey = "userSession";
+    this.auth = firebase.auth();
     this.configRef = database.ref("config/adminCredentials");
+    this.isInitialized = false;
 
     // Default admin credentials (will be saved to Firebase on first use)
     this.adminCredentials = {
@@ -13,11 +15,64 @@ class AuthManager {
       password: this.hashPassword("admin123"), // Default password
     };
 
-    // Load credentials from Firebase
-    this.loadCredentialsFromFirebase();
+    // Initialize authentication
+    this.initialize();
+  }
 
-    // Check for existing session
-    this.loadSession();
+  /**
+   * Initialize authentication system
+   */
+  async initialize() {
+    try {
+      // Load credentials from Firebase
+      await this.loadCredentialsFromFirebase();
+
+      // Listen for auth state changes
+      this.auth.onAuthStateChanged(async (user) => {
+        if (user) {
+          // Check if user is admin
+          await this.checkAdminStatus(user.uid);
+        } else {
+          // Sign in anonymously for regular users
+          await this.auth.signInAnonymously();
+        }
+        this.isInitialized = true;
+      });
+    } catch (error) {
+      console.error("Auth initialization error:", error);
+      // Fallback to anonymous auth
+      await this.auth.signInAnonymously();
+      this.isInitialized = true;
+    }
+  }
+
+  /**
+   * Check if user is an admin
+   * @param {string} uid - User ID
+   */
+  async checkAdminStatus(uid) {
+    try {
+      const snapshot = await database.ref(`admins/${uid}`).once("value");
+      if (snapshot.exists()) {
+        this.currentUser = {
+          uid: uid,
+          role: "admin",
+          username: snapshot.val().username || "admin",
+          loginTime: Date.now(),
+        };
+      } else {
+        this.currentUser = {
+          uid: uid,
+          role: "user",
+        };
+      }
+    } catch (error) {
+      console.error("Error checking admin status:", error);
+      this.currentUser = {
+        uid: uid,
+        role: "user",
+      };
+    }
   }
 
   /**
@@ -69,36 +124,80 @@ class AuthManager {
   }
 
   /**
-   * Authenticate user
+   * Authenticate user with Firebase
    * @param {string} username - Username
    * @param {string} password - Password
-   * @returns {boolean} True if authentication successful
+   * @returns {Promise<boolean>} True if authentication successful
    */
-  login(username, password) {
-    const hashedPassword = this.hashPassword(password);
+  async login(username, password) {
+    try {
+      const hashedPassword = this.hashPassword(password);
 
-    if (
-      username === this.adminCredentials.username &&
-      hashedPassword === this.adminCredentials.password
-    ) {
-      this.currentUser = {
-        username: username,
-        role: "admin",
-        loginTime: Date.now(),
-      };
-      this.saveSession();
-      return true;
+      // Verify credentials match stored credentials
+      if (
+        username !== this.adminCredentials.username ||
+        hashedPassword !== this.adminCredentials.password
+      ) {
+        return false;
+      }
+
+      // Sign in with Firebase (create user if doesn't exist)
+      const email = `${username}@temple.local`;
+
+      try {
+        // Try to sign in
+        const credential = await this.auth.signInWithEmailAndPassword(
+          email,
+          password
+        );
+
+        // Ensure user is in admins list
+        await database.ref(`admins/${credential.user.uid}`).set({
+          username: username,
+          email: email,
+          createdAt: Date.now(),
+        });
+
+        await this.checkAdminStatus(credential.user.uid);
+        return true;
+      } catch (error) {
+        if (error.code === "auth/user-not-found") {
+          // Create new admin user
+          const credential = await this.auth.createUserWithEmailAndPassword(
+            email,
+            password
+          );
+
+          // Add to admins list
+          await database.ref(`admins/${credential.user.uid}`).set({
+            username: username,
+            email: email,
+            createdAt: Date.now(),
+          });
+
+          await this.checkAdminStatus(credential.user.uid);
+          return true;
+        }
+        throw error;
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      return false;
     }
-
-    return false;
   }
 
   /**
-   * Log out current user
+   * Log out current user and sign in anonymously
    */
-  logout() {
-    this.currentUser = null;
-    localStorage.removeItem(this.sessionKey);
+  async logout() {
+    try {
+      this.currentUser = null;
+      // Sign out and then sign in anonymously
+      await this.auth.signOut();
+      await this.auth.signInAnonymously();
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   }
 
   /**
@@ -118,27 +217,20 @@ class AuthManager {
   }
 
   /**
-   * Save session to localStorage (persists across browser refreshes)
+   * Wait for authentication to be initialized
+   * @returns {Promise<void>}
    */
-  saveSession() {
-    if (this.currentUser) {
-      localStorage.setItem(this.sessionKey, JSON.stringify(this.currentUser));
-    }
-  }
+  async waitForInit() {
+    if (this.isInitialized) return;
 
-  /**
-   * Load session from localStorage
-   */
-  loadSession() {
-    const session = localStorage.getItem(this.sessionKey);
-    if (session) {
-      try {
-        this.currentUser = JSON.parse(session);
-      } catch (e) {
-        console.error("Failed to load session:", e);
-        this.currentUser = null;
-      }
-    }
+    return new Promise((resolve) => {
+      const checkInit = setInterval(() => {
+        if (this.isInitialized) {
+          clearInterval(checkInit);
+          resolve();
+        }
+      }, 100);
+    });
   }
 
   /**
