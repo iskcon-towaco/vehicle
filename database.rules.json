@@ -1,0 +1,21 @@
+{
+  "rules": {
+    "records": {
+      ".read": true,
+      ".write": "auth != null",
+      ".indexOn": ["plateNumber"]
+    },
+    
+    "admins": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null"
+      }
+    },
+    
+    "config": {
+      ".read": true,
+      ".write": "auth != null"
+    }
+  }
+}

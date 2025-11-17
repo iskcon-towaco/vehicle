@@ -12,55 +12,68 @@ class ConfigManager {
    */
   setupConfigUI() {
     // Check if API key exists
-    const apiKey = localStorage.getItem('plateRecognizerApiKey');
+    const apiKey = localStorage.getItem("plateRecognizerApiKey");
     this.updateConfigStatus(!!apiKey);
 
     // Set up event listeners
-    const configToggle = document.getElementById('configToggle');
-    const configPanel = document.getElementById('configPanel');
-    const saveApiKeyBtn = document.getElementById('saveApiKey');
-    const clearApiKeyBtn = document.getElementById('clearApiKey');
-    const apiKeyInput = document.getElementById('apiKeyInput');
+    const configToggle = document.getElementById("configToggle");
+    const configPanel = document.getElementById("configPanel");
+    const saveApiKeyBtn = document.getElementById("saveApiKey");
+    const clearApiKeyBtn = document.getElementById("clearApiKey");
+    const apiKeyInput = document.getElementById("apiKeyInput");
 
     if (configToggle) {
-      configToggle.addEventListener('click', () => {
-        configPanel.style.display = configPanel.style.display === 'none' ? 'block' : 'none';
+      configToggle.addEventListener("click", () => {
+        configPanel.style.display =
+          configPanel.style.display === "none" ? "block" : "none";
       });
     }
 
     if (saveApiKeyBtn) {
-      saveApiKeyBtn.addEventListener('click', async () => {
+      saveApiKeyBtn.addEventListener("click", async () => {
         const apiKey = apiKeyInput.value.trim();
         if (apiKey) {
           try {
             await this.formHandler.setApiKey(apiKey);
             this.updateConfigStatus(true);
-            this.showMessage('API key saved to Firebase successfully!', 'success');
-            configPanel.style.display = 'none';
+            this.showMessage(
+              "API key saved to Firebase successfully!",
+              "success"
+            );
+            configPanel.style.display = "none";
           } catch (error) {
-            this.showMessage('Failed to save API key. Please try again.', 'error');
+            this.showMessage(
+              "Failed to save API key. Please try again.",
+              "error"
+            );
           }
         } else {
-          this.showMessage('Please enter a valid API key', 'error');
+          this.showMessage("Please enter a valid API key", "error");
         }
       });
     }
 
     if (clearApiKeyBtn) {
-      clearApiKeyBtn.addEventListener('click', async () => {
+      clearApiKeyBtn.addEventListener("click", async () => {
         try {
-          await this.formHandler.setApiKey('');
-          apiKeyInput.value = '';
+          await this.formHandler.setApiKey("");
+          apiKeyInput.value = "";
           this.updateConfigStatus(false);
-          this.showMessage('API key cleared from Firebase. Using Tesseract.js fallback.', 'info');
+          this.showMessage(
+            "API key cleared from Firebase. Using Tesseract.js fallback.",
+            "info"
+          );
         } catch (error) {
-          this.showMessage('Failed to clear API key. Please try again.', 'error');
+          this.showMessage(
+            "Failed to clear API key. Please try again.",
+            "error"
+          );
         }
       });
     }
 
-    // Load existing API key from Firebase into input
-    this.loadApiKeyToInput(apiKeyInput);
+    // Load existing API key from Firebase into input (after delay for auth)
+    setTimeout(() => this.loadApiKeyToInput(apiKeyInput), 1500);
   }
 
   /**
@@ -69,9 +82,9 @@ class ConfigManager {
    */
   async loadApiKeyToInput(apiKeyInput) {
     if (!apiKeyInput) return;
-    
+
     try {
-      const snapshot = await database.ref('config/apiKey').once('value');
+      const snapshot = await database.ref("config/apiKey").once("value");
       if (snapshot.exists()) {
         apiKeyInput.value = snapshot.val();
         this.updateConfigStatus(true);
@@ -79,7 +92,10 @@ class ConfigManager {
         this.updateConfigStatus(false);
       }
     } catch (error) {
-      console.error('Error loading API key:', error);
+      // Silently fail if not authenticated yet
+      if (error.code !== "PERMISSION_DENIED") {
+        console.error("Error loading API key:", error);
+      }
       this.updateConfigStatus(false);
     }
   }
@@ -89,14 +105,14 @@ class ConfigManager {
    * @param {boolean} hasApiKey - Whether API key is configured
    */
   updateConfigStatus(hasApiKey) {
-    const statusIndicator = document.getElementById('apiKeyStatus');
+    const statusIndicator = document.getElementById("apiKeyStatus");
     if (statusIndicator) {
       if (hasApiKey) {
-        statusIndicator.textContent = '✓ Plate Recognizer API Enabled (Shared)';
-        statusIndicator.style.color = '#10b981';
+        statusIndicator.textContent = "✓ Plate Recognizer API Enabled (Shared)";
+        statusIndicator.style.color = "#10b981";
       } else {
-        statusIndicator.textContent = '⚠ Using Tesseract.js (Basic OCR)';
-        statusIndicator.style.color = '#f59e0b';
+        statusIndicator.textContent = "⚠ Using Tesseract.js (Basic OCR)";
+        statusIndicator.style.color = "#f59e0b";
       }
     }
   }
@@ -107,17 +123,17 @@ class ConfigManager {
    * @param {string} type - Message type ('success', 'error', 'info')
    */
   showMessage(message, type) {
-    const messageContainer = document.getElementById('messageContainer');
+    const messageContainer = document.getElementById("messageContainer");
     if (!messageContainer) return;
 
-    const messageElement = document.createElement('div');
+    const messageElement = document.createElement("div");
     messageElement.className = `message message-${type}`;
     messageElement.textContent = message;
 
     messageContainer.appendChild(messageElement);
 
     setTimeout(() => {
-      messageElement.classList.add('message-fade-out');
+      messageElement.classList.add("message-fade-out");
       setTimeout(() => {
         if (messageElement.parentNode) {
           messageElement.remove();

@@ -26,7 +26,7 @@ class App {
    * Requirement 5.2: Load previously stored records
    * Requirement 5.4: Display error when localStorage unavailable
    */
-  init() {
+  async init() {
     // Initialize managers
     this.authManager = new AuthManager();
     this.storageManager = new StorageManager();
@@ -34,6 +34,9 @@ class App {
     this.uiManager = new UIManager();
     this.formHandler = new FormHandler(this.storageManager);
     this.configManager = new ConfigManager(this.formHandler);
+
+    // Wait for authentication to initialize
+    await this.authManager.waitForInit();
 
     // Update UI based on auth status
     this.updateAuthUI();
@@ -58,7 +61,7 @@ class App {
 
     // Load and display all records on page load
     // Requirement 5.2: Load previously stored records from Firebase
-    this.loadAndDisplayRecords();
+    await this.loadAndDisplayRecords();
 
     // Set up real-time listener for record changes
     this.setupRealtimeListener();
@@ -149,10 +152,13 @@ class App {
 
     // Logout button
     if (logoutBtn) {
-      logoutBtn.addEventListener("click", () => {
-        this.authManager.logout();
+      logoutBtn.addEventListener("click", async () => {
+        await this.authManager.logout();
         this.updateAuthUI();
         this.uiManager.showMessage("Logged out successfully", "info");
+
+        // Reload records with non-admin access (redacted)
+        await this.loadAndDisplayRecords();
       });
     }
 
@@ -165,29 +171,49 @@ class App {
 
     // Login form submission
     if (loginForm) {
-      loginForm.addEventListener("submit", (e) => {
+      loginForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const username = document.getElementById("loginUsername").value;
         const password = document.getElementById("loginPassword").value;
+        const errorDiv = document.getElementById("loginError");
 
-        if (this.authManager.login(username, password)) {
-          loginModal.style.display = "none";
-          this.updateAuthUI();
-          this.uiManager.showMessage("Login successful!", "success");
-          loginForm.reset();
-          document.getElementById("loginError").style.display = "none";
+        // Show loading state
+        const submitBtn = loginForm.querySelector('button[type="submit"]');
+        const originalText = submitBtn.textContent;
+        submitBtn.textContent = "Logging in...";
+        submitBtn.disabled = true;
 
-          // Show warning if using default password
-          if (this.authManager.isDefaultPassword()) {
-            this.uiManager.showMessage(
-              "⚠️ Please change the default password!",
-              "warning"
-            );
+        try {
+          const success = await this.authManager.login(username, password);
+
+          if (success) {
+            loginModal.style.display = "none";
+            this.updateAuthUI();
+            this.uiManager.showMessage("Login successful!", "success");
+            loginForm.reset();
+            errorDiv.style.display = "none";
+
+            // Reload records with admin access
+            await this.loadAndDisplayRecords();
+
+            // Show warning if using default password
+            if (this.authManager.isDefaultPassword()) {
+              this.uiManager.showMessage(
+                "⚠️ Please change the default password!",
+                "warning"
+              );
+            }
+          } else {
+            errorDiv.textContent = "Invalid username or password";
+            errorDiv.style.display = "block";
           }
-        } else {
-          document.getElementById("loginError").textContent =
-            "Invalid username or password";
-          document.getElementById("loginError").style.display = "block";
+        } catch (error) {
+          console.error("Login error:", error);
+          errorDiv.textContent = "Login failed. Please try again.";
+          errorDiv.style.display = "block";
+        } finally {
+          submitBtn.textContent = originalText;
+          submitBtn.disabled = false;
         }
       });
     }

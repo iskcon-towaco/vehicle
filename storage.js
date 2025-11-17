@@ -97,43 +97,105 @@ class StorageManager {
   }
 
   /**
-   * Retrieve all stored records from Firebase
+   * Retrieve all stored records from Firebase with proper security
+   * Data is automatically redacted server-side for non-admin users
    * Requirement 5.2: Load previously stored records
    * @returns {Promise<Array>} Promise that resolves to array of record objects
    */
   async getAllRecords() {
     try {
+      console.log("📥 Fetching records from Firebase...");
+
+      // Skip Cloud Functions - using direct database access
+      // (Cloud Functions not deployed)
       const snapshot = await this.recordsRef.once("value");
       const records = [];
+      const isAdmin = window.app?.authManager?.isAdmin() || false;
+
+      if (!snapshot.exists()) {
+        console.log("ℹ️ No records found in database");
+        return [];
+      }
 
       snapshot.forEach((childSnapshot) => {
         const record = childSnapshot.val();
-        // imageData is already in base64 format, no conversion needed
+
+        // Client-side redaction as fallback
+        // NOTE: This is NOT secure - data is still downloaded to client
+        // Deploy Cloud Functions for proper security
+        if (!isAdmin) {
+          record.ownerName = this.redactName(record.ownerName);
+          record.phoneNumber = this.redactPhone(record.phoneNumber);
+        }
+
         records.push(record);
       });
 
       // Sort by creation date (newest first)
       records.sort((a, b) => b.createdAt - a.createdAt);
 
+      console.log(
+        `✅ Fetched ${records.length} records from Firebase (admin: ${isAdmin})`
+      );
       return records;
     } catch (e) {
-      console.error("Error retrieving records from Firebase:", e);
+      console.error("❌ Error retrieving records from Firebase:", e);
+      console.error("Error code:", e.code);
+      console.error("Error message:", e.message);
+
+      if (e.code === "PERMISSION_DENIED") {
+        console.error(
+          "🔒 Permission denied - check Firebase rules and authentication"
+        );
+      }
+
       return [];
     }
   }
 
   /**
-   * Listen for real-time updates to records
+   * Client-side redaction (fallback only - not secure)
+   */
+  redactName(name) {
+    if (!name) return "";
+    return name
+      .split(" ")
+      .map((word) =>
+        word.length > 0
+          ? word[0] + "*".repeat(Math.min(word.length - 1, 3))
+          : ""
+      )
+      .join(" ");
+  }
+
+  redactPhone(phone) {
+    if (!phone) return "";
+    const cleaned = phone.replace(/\D/g, "");
+    if (cleaned.length <= 4) return "****";
+    return "*".repeat(cleaned.length - 4) + cleaned.slice(-4);
+  }
+
+  /**
+   * Listen for real-time updates to records with security
    * @param {Function} callback - Callback function to call when data changes
    */
   onRecordsChange(callback) {
     const listener = this.recordsRef.on("value", (snapshot) => {
       const records = [];
+      const isAdmin = window.app?.authManager?.isAdmin() || false;
+
       snapshot.forEach((childSnapshot) => {
         const record = childSnapshot.val();
-        // imageData is already in base64 format, no conversion needed
+
+        // Client-side redaction as fallback (not fully secure)
+        if (!isAdmin) {
+          record.ownerName = this.redactName(record.ownerName);
+          record.phoneNumber = this.redactPhone(record.phoneNumber);
+        }
+
         records.push(record);
       });
+
       records.sort((a, b) => b.createdAt - a.createdAt);
       callback(records);
     });

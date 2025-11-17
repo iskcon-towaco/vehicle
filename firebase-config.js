@@ -18,13 +18,7 @@ const firebaseConfig = {
 // Initialize Firebase
 firebase.initializeApp(firebaseConfig);
 
-// Get references to Firebase services (no Storage needed for base64)
+// Get references to Firebase services
 const database = firebase.database();
-const auth = firebase.auth();
 
-// Sign in anonymously for write permissions
-auth.signInAnonymously().catch((error) => {
-  console.error("Firebase auth error:", error);
-});
-
-console.log("Firebase initialized successfully (using base64 for images)");
+console.log("Firebase initialized successfully");
